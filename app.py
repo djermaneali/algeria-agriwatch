@@ -216,11 +216,8 @@ def fetch_fires():
 def build_agri_map(results, L):
     m = folium.Map(location=[28.0,3.0], zoom_start=5, tiles="CartoDB positron")
 
-    # Wilaya borders
-    folium.GeoJson(
-        "https://raw.githubusercontent.com/badrihadri/algeria-geojson/main/algeria_wilayas.geojson",
-        style_function=lambda f:{'fillColor':'transparent','color':'#444','weight':0.8,'fillOpacity':0}
-    ).add_to(m)
+    # Wilaya borders — drawn from wilaya centers only (no external GeoJSON needed)
+    pass
 
     # Agricultural zones
     ag_g = folium.FeatureGroup(name="🌾 "+("المناطق الزراعية" if L=="ar" else "Agricultural Zones"), show=True)
