@@ -213,6 +213,79 @@ def fetch_fires():
     except: pass
     return pd.DataFrame()
 
+def build_ndvi_map(results, L):
+    """خريطة NDVI مبنية على بيانات الطقس الحقيقية"""
+    m = folium.Map(location=[28.0, 3.0], zoom_start=5, tiles="CartoDB positron")
+
+    # NDVI health circles — color and size based on real weather data
+    for r in results:
+        color  = r["hcolor"]
+        radius = max(8, min(22, r["area_ha"]//20000))
+        name   = r["name_ar"] if L=="ar" else r["name_en"]
+        crops  = r["crops_ar"] if L=="ar" else r["crops_en"]
+
+        if r["hcolor"]=="#52b788":   status = "🟢 جيد" if L=="ar" else "🟢 Healthy"
+        elif r["hcolor"]=="#f4a261": status = "🟡 متوسط" if L=="ar" else "🟡 Moderate"
+        else:                         status = "🔴 جفاف" if L=="ar" else "🔴 Drought"
+
+        popup_html = f"""
+        <div style='font-family:Arial;min-width:240px;padding:10px'>
+            <h4 style='color:{color};margin:0 0 8px;
+                       border-bottom:2px solid {color};padding-bottom:4px'>
+                🌾 {name}</h4>
+            <table style='width:100%;font-size:12px;border-collapse:collapse'>
+                <tr style='background:#f8f9fa'>
+                    <td><b>{'الحالة' if L=='ar' else 'Status'}</b></td>
+                    <td><b style='color:{color}'>{status}</b></td></tr>
+                <tr><td><b>{'الصحة' if L=='ar' else 'Health'}</b></td>
+                    <td><b style='color:{color}'>{r['health']}%</b></td></tr>
+                <tr style='background:#f8f9fa'>
+                    <td><b>NDVI</b></td><td>{r['ndvi']}</td></tr>
+                <tr><td><b>{'أمطار 7 أيام' if L=='ar' else 'Rain 7d'}</b></td>
+                    <td>{r['rain']} mm</td></tr>
+                <tr style='background:#f8f9fa'>
+                    <td><b>{'الحرارة' if L=='ar' else 'Temp'}</b></td>
+                    <td>{r['temp']} °C</td></tr>
+                <tr><td><b>{'المساحة' if L=='ar' else 'Area'}</b></td>
+                    <td>{r['area_ha']:,} {'هكتار' if L=='ar' else 'ha'}</td></tr>
+                <tr style='background:#f8f9fa'>
+                    <td><b>{'المحاصيل' if L=='ar' else 'Crops'}</b></td>
+                    <td style='font-size:11px'>{crops}</td></tr>
+            </table>
+            <div style='background:#f0f9f0;padding:6px;margin-top:6px;
+                        border-radius:4px;font-size:11px;
+                        border-left:3px solid {color}'>
+                ℹ️ {r['info_ar'] if L=='ar' else r.get('info_en', r['info_ar'])}
+            </div>
+        </div>"""
+
+        folium.CircleMarker(
+            location=[r["lat"], r["lon"]],
+            radius=radius,
+            color=color, fill=True,
+            fill_color=color, fill_opacity=0.8,
+            popup=folium.Popup(popup_html, max_width=280),
+            tooltip=f"🌾 {name} | {'صحة' if L=='ar' else 'Health'}: {r['health']}% | NDVI: {r['ndvi']}"
+        ).add_to(m)
+
+    # Legend
+    legend = f"""
+    <div style='position:fixed;bottom:20px;left:20px;z-index:1000;
+                background:white;padding:12px;border-radius:10px;
+                box-shadow:0 2px 8px rgba(0,0,0,0.2);font-family:Arial;font-size:11px'>
+        <b>🌾 {'صحة المحاصيل — NDVI' if L=='ar' else 'Crop Health — NDVI'}</b><br>
+        <small style='color:#888'>{'مبني على بيانات الطقس الحقيقية' if L=='ar' else 'Based on real weather data'}</small><br><br>
+        <span style='color:#52b788;font-size:16px'>●</span> {'جيد (≥55%)' if L=='ar' else 'Healthy (≥55%)'}<br>
+        <span style='color:#f4a261;font-size:16px'>●</span> {'متوسط (30-54%)' if L=='ar' else 'Moderate (30-54%)'}<br>
+        <span style='color:#e63946;font-size:16px'>●</span> {'جفاف (<30%)' if L=='ar' else 'Drought (<30%)'}<br>
+        <small>({'الحجم = المساحة' if L=='ar' else 'Size = area'})</small>
+    </div>"""
+    m.get_root().html.add_child(folium.Element(legend))
+    Fullscreen(position='topright').add_to(m)
+    folium.LayerControl(collapsed=True, position='topright').add_to(m)
+    return m
+
+
 def build_agri_map(results, L):
     m = folium.Map(location=[28.0,3.0], zoom_start=5, tiles="CartoDB positron")
 
@@ -438,19 +511,48 @@ c4.metric("💧 "+("سدود" if L=="ar" else "Dams"),              sum(1 for d 
 st.markdown("---")
 
 # TABS
-tab_labels = (["🗺️ الخريطة","📊 التقرير","🌤️ الطقس","🔥 الحرائق","⚡ الكهرباء","ℹ️ عن المشروع"]
+tab_labels = (["🛰️ صحة المحاصيل","🗺️ الفلاحة والسدود","📊 التقرير","🌤️ الطقس","🔥 الحرائق","⚡ الكهرباء","ℹ️ عن المشروع"]
               if L=="ar" else
-              ["🗺️ Map","📊 Report","🌤️ Weather","🔥 Fires","⚡ Power Grid","ℹ️ About"])
+              ["🛰️ Crop Health","🗺️ Agri & Dams","📊 Report","🌤️ Weather","🔥 Fires","⚡ Power Grid","ℹ️ About"])
 tabs = st.tabs(tab_labels)
 
-# TAB 1: MAP
+# TAB 0: CROP HEALTH NDVI
 with tabs[0]:
+    st.subheader("🛰️ " + ("مراقبة صحة المحاصيل عبر الأقمار الاصطناعية" if L=="ar" else "Crop Health Monitoring via Satellite"))
+    st.caption("📡 " + ("البيانات مبنية على بيانات الطقس الحقيقية من Open-Meteo (30 يوم)" if L=="ar" else "Based on real weather data from Open-Meteo (30-day archive)"))
+
+    # NDVI bar chart
+    fig_ndvi, ax = plt.subplots(figsize=(10, 4))
+    names  = [r["name_ar"] if L=="ar" else r["name_en"] for r in results]
+    scores = [r["health"] for r in results]
+    colors = [r["hcolor"] for r in results]
+    bars = ax.barh(names, scores, color=colors, edgecolor="white", linewidth=0.5)
+    ax.axvline(55, color="#52b788", linestyle="--", alpha=0.7,
+               label=("جيد (55)" if L=="ar" else "Healthy (55)"))
+    ax.axvline(30, color="#f4a261", linestyle="--", alpha=0.7,
+               label=("تحذير (30)" if L=="ar" else "Warning (30)"))
+    ax.set_xlabel("Health Score (0-100)")
+    ax.set_xlim(0, 100)
+    ax.legend(fontsize=9)
+    for bar, s in zip(bars, scores):
+        ax.text(bar.get_width()+1, bar.get_y()+bar.get_height()/2,
+                f"{s:.0f}%", va="center", fontsize=9)
+    plt.tight_layout()
+    st.pyplot(fig_ndvi)
+    plt.close()
+
+    # NDVI map
+    ndvi_map = build_ndvi_map(results, L)
+    components.html(ndvi_map._repr_html_(), height=500, scrolling=False)
+
+# TAB 1: AGRI + DAMS MAP
+with tabs[1]:
     st.subheader("🌾💧 " + ("الفلاحة والسدود" if L=="ar" else "Agriculture & Dams"))
     agri_map = build_agri_map(results, L)
     components.html(agri_map._repr_html_(), height=550, scrolling=False)
 
 # TAB 2: REPORT
-with tabs[1]:
+with tabs[2]:
     st.subheader("📊 " + ("تقرير الصحة الزراعية" if L=="ar" else "Agricultural Health Report"))
     df_show = pd.DataFrame([{
         ("المنطقة" if L=="ar" else "Zone"):     r["name_ar"] if L=="ar" else r["name_en"],
@@ -481,7 +583,7 @@ with tabs[1]:
     st.info(f"💧 {'إجمالي السعة التخزينية:' if L=='ar' else 'Total storage capacity:'} **{total_cap:,} Mm³**")
 
 # TAB 3: WEATHER
-with tabs[2]:
+with tabs[3]:
     st.subheader("🌤️ " + ("توقعات الطقس — 7 أيام" if L=="ar" else "Weather Forecast — 7 Days"))
     zone_names = [z["name_ar"] if L=="ar" else z["name_en"] for z in zones_show]
     sel = st.selectbox("", zone_names)
@@ -499,7 +601,7 @@ with tabs[2]:
         st.pyplot(fig2); plt.close()
 
 # TAB 4: FIRES
-with tabs[3]:
+with tabs[4]:
     st.subheader("🔥 " + ("الحرائق النشطة" if L=="ar" else "Active Fires"))
     fires = fetch_fires()
     if fires.empty:
@@ -516,13 +618,13 @@ with tabs[3]:
         components.html(fire_map._repr_html_(), height=450, scrolling=False)
 
 # TAB 5: POWER
-with tabs[4]:
+with tabs[5]:
     st.subheader("⚡ " + ("شبكة الكهرباء — Sonelgaz" if L=="ar" else "Power Grid — Sonelgaz"))
     power_map = build_power_map()
     components.html(power_map._repr_html_(), height=550, scrolling=False)
 
 # TAB 6: ABOUT
-with tabs[5]:
+with tabs[6]:
     st.markdown("""
 ## 🇩🇿 نظام المراقبة الزراعية للجزائر
 
